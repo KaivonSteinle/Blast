@@ -1,0 +1,243 @@
+---
+title: "Blast Analysis"
+output: html_document
+---
+
+```{r}
+
+#Import Data
+library(readxl)
+SLU_Blast <- read_excel("AllSLUswings.xlsx")
+SLU_Blast <- SLU_Blast %>% mutate(Connection_Diff = Early_Connection - Connection_at_Impact)
+View(SLU_Blast)
+#Only SLU Blast is uploaded since I don't think I can share Wareham
+Wareham_Blast <- read_excel("Wareham_Blast.xlsx")
+View(Wareham_Blast)
+
+##All this work is done with SLU Blast Data set, but could be repeated with Wareham.
+##Blast Motion reports dates differently, so this turns the dates into the format I want them to be in.
+SLU_Blast$Date <- as.Date(SLU_Blast$Date, format = "%b %d, %Y")
+SLU_Blast$Date <- as.Date(SLU_Blast$Date, format = "%m/%d/%Y")
+SLU_Blast$Hitter <- as.factor(SLU_Blast$Hitter)
+SLU_Blast$SwingDetails <- as.factor(SLU_Blast$SwingDetails)
+#We didn't want any metrics from an environment that we didn't know well and the filtered out extreme outliers
+SLU_Blast <- SLU_Blast %>% filter(SwingDetails != "Tee" & Bat_Speed >= 45)
+
+#Correlations between metrics
+Blast_Cors <- cor(SLU_Blast %>% dplyr::select(Bat_Speed:Peak_Hand_Speed))
+View(Blast_Cors)
+
+
+
+### PCA ON BLAST DATA ###
+
+Blast_PCA <- SLU_Blast %>% dplyr::select(Bat_Speed:Connection_Diff)
+blast.pca <- prcomp(Blast_PCA, scale = TRUE)
+print(blast.pca)
+#Now we can visualize the data:
+#Eigenvalues measure amount of variation retained by each component. First PCs correspond to directions with maximum amount of variations. Can see proportion of variance (info) with each PC
+eig.val <- get_eigenvalue(blast.pca)
+eig.val
+#Eigenvalue > 1 means PCs account for more variance than an original variable in standardized data. This is usually a cutoff point for which they're retained. Can also use a total variance cutoff.
+#We can also use a plot to see the principle components.
+fviz_eig(blast.pca, addlabels = TRUE, ylim = c(0, 50))
+#Plot the variables:
+fviz_pca_var(blast.pca, col.var = "black")
+#This shows relationsips between all variables. Positively correlated are grouped together. Negtaively correlated are on opposite sides. Distance between variables and the origin measures the the quality of the variables on the factor map. Variables that are away from the origin are well represented on the factor map.
+#The quality of representation of the variables on factor map is called cos2 (square cosine, squared coordinates) . You can access to the cos2 as follow: library("corrplot")
+head(var$cos2, 5)
+corrplot(var$cos2, is.corr=FALSE)
+#The cos2 values are used to estimate the quality of the representation
+#The closer a variable is to the circle of correlations, the better its representation on the factor map (and the more important it is to interpret these components)
+#Variables that are closed to the center of the plot are less important for the first components.
+# Color by cos2 values: quality on the factor map
+fviz_pca_var(blast.pcafviz_pca_var(blast.pca, col.var = "black"), col.var = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             repel = TRUE # Avoid text overlapping
+             )
+#Bar plot of contributing variables to each PC
+fviz_contrib(blast.pca, choice = "var", axes = 1, top = 10)
+#Contributions of variables to PC2
+fviz_contrib(blast.pca, choice = "var", axes = 2, top = 10)
+#Contributions of variables to PC3
+fviz_contrib(blast.pca, choice = "var", axes = 3, top = 10)
+#Red dashed line shows expected average contribution.
+
+
+
+#Import Paired Data
+Paired_Blast_Data <- read_excel("Paired Blast Data.xlsx")
+View(Paired_Blast_Data)
+##The Trackman Data was a bit strange when I first imported it, so I did these just to be safe.
+Paired_Blast_Data$AutoPitchType <- as.character(Paired_Blast_Data$AutoPitchType)
+Paired_Blast_Data$Angle <- as.numeric(Paired_Blast_Data$Angle)
+Paired_Blast_Data$ExitSpeed <- as.numeric(Paired_Blast_Data$ExitSpeed)
+Paired_Blast_Data <- Paired_Blast_Data %>% arrange(Batter)
+##Just like before we formatted the Trackman dates and took out extreme outliers.
+Paired_Blast_Data$Date <- as.Date(Paired_Blast_Data$Date, format = "%b %d, %Y")
+Paired_Blast_Data$Date <- as.Date(Paired_Blast_Data$Date, format = "%m/%d/%Y")
+Paired_Blast_Data <- Paired_Blast_Data %>% mutate(Connection_Diff = Early_Connection - Connection_at_Impact)
+##We can't work with anything where there is no strike zone coordinate or noted pitch type. Here I filter for balls in play with Blast data, but could've done any ball with Blast data
+Paired_Blast_Data <- Paired_Blast_Data %>% filter(!is.na(AutoPitchType) & AutoPitchType != "Undefined" & !is.na(PlateLocHeight) & !is.na(PlateLocSide) & PitchCall == "InPlay" & !is.na(ExitSpeed) & HitType != "Bunt" & !is.na(Bat_Speed))
+##Arranging by batter just like before.
+Paired_Blast_Data <- Paired_Blast_Data %>% arrange(Batter)
+View(Paired_Blast_Data)
+#Add Dimensions to data
+PBP_PCA <- Paired_Blast_Data %>% dplyr::select(Bat_Speed:Time_to_Contact,Connection_Diff)
+ind.sup.coord <- predict(blast.pca, newdata = PBP_PCA)
+ind.sup.coord[, 1:5]
+#Wrote to a CSV and reimported
+write.csv(Paired_Blast_Data, "Paired_Blast_Data.csv")
+write.csv(ind.sup.coord[, 1:5], "Coord.csv")
+Paired_Blast_Data <- read.csv("Paired_Blast_Data.csv")
+View(Paired_Blast_Data)
+
+
+
+### TRACKMAN & BLAST DATA BREAKDOWNS ###
+
+#Correlations between BIP data and Blast
+Blast_EV_Cors <- cor(Paired_Blast_Data %>% dplyr::select(ExitSpeed, Angle, Direction, Distance, Bat_Speed:Time_to_Contact, PC1, PC2, PC3, PC4, Connection_Diff))
+View(Blast_EV_Cors)
+
+#Graph some relationships
+ggplot(Paired_Blast_Data, aes(x = Bat_Speed, y = ExitSpeed)) + geom_point(size = 0.95, alpha = 0.95) + geom_smooth() + ggtitle("Exit Velocity based on Bat Speed") + labs(y = "Exit Velocity (mph)", x = "Bat Speed (mph)") + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + ylim(50, 107) + xlim(55, 77)
+ggplot(Paired_Blast_Data, aes(x = Power, y = ExitSpeed)) + geom_point(size = 0.95, alpha = 0.95) + geom_smooth() + ggtitle("Exit Velocity based on Power") + labs(y = "Exit Velocity (mph)", x = "Power (kW)") + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + ylim(50, 107) + xlim(2,5.75)
+ggplot(Paired_Blast_Data, aes(x = Peak_Hand_Speed, y = ExitSpeed)) + geom_point(size = 0.95, alpha = 0.95) + geom_smooth() + ggtitle("Exit Velocity based on Peak Hand Speed") + labs(y = "Exit Velocity (mph)", x = "Peak Hand Speed (mph)") + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + ylim(50, 107)
+ggplot(Paired_Blast_Data, aes(x = Rotational_Acceleration, y = ExitSpeed)) + geom_point(size = 0.95, alpha = 0.95) + geom_smooth() + ggtitle("Exit Velocity based on Rotational Acceleration") + labs(y = "Exit Velocity (mph)", x = "Rotational Acceleration (g)") + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + ylim(50, 107)
+ggplot(Paired_Blast_Data, aes(x = PC1, y = ExitSpeed)) + geom_point(size = 0.95, alpha = 0.95) + geom_smooth() + ggtitle("Exit Velocity based on Dimension 1") + labs(y = "Exit Velocity (mph)", x = "Dimension 1") + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + ylim(50, 107) + xlim(-2.8, 3.2)
+
+##Importing and preparing xwOBAcon model.
+Hit_Probability_Chart <- read_excel("Hit Probability Chart.xlsx")
+View(Hit_Probability_Chart)
+Hit_Probability_Chart2 <- Hit_Probability_Chart %>% filter(AVG != 0 & AVG != 1 & !is.na(wOBA) & ExitSpeed > 45 & Angle > -50)
+Hit_Probability_Chart2$wOBA <- as.numeric(Hit_Probability_Chart2$wOBA)
+##KNN Model
+trControl <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
+set.seed(222)
+fit <- caret::train(wOBA ~ ExitSpeed + Angle, data = Hit_Probability_Chart2, method = "knn", metric = "Rsquared", tuneGrid = expand.grid(k=1:20), trControl = trControl, preProc = c("center", "scale"))
+#Add as a column to Blast Data
+Paired_Blast_Data$xwOBAcon <- predict(fit, newdata = Paired_Blast_Data)
+
+#Plot xwOBAcon based on EV and LA 
+Gatemen_Trackman <- read_excel("Gatemen_Trackman_Backup.xlsx")
+Gatemen_Trackman <- Gatemen_Trackman %>% filter(!is.na(AutoPitchType) & AutoPitchType != "Undefined" & !is.na(PlateLocHeight) & !is.na(PlateLocSide) & PitchCall == "InPlay" & !is.na(ExitSpeed) & HitType != "Bunt" & ExitSpeed > 45)
+Gatemen_Trackman$xwOBAcon <- predict(fit, newdata = Gatemen_Trackman)
+View(Gatemen_Trackman)
+mid <- median(Gatemen_Trackman$xwOBAcon)
+ggplot(Gatemen_Trackman, aes(x = ExitSpeed, y = Angle, colour = xwOBAcon)) + geom_point(size = 0.85, position = "jitter") + ggtitle("xwOBAcon Based On EV & LA") + labs(y = "Launch Angle (deg)", x = "Exit Velocity (mph)") + theme_dark() + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + theme(legend.position='none') + scale_color_gradient2(midpoint = mid, low="blue", mid="white", high="red", space ="Lab") 
+
+#Plot xwOBAcon based on Bat Speed & AA
+mid <- 0.2549091 #The median xwOBAcon of the balls in play from all Cape data
+ggplot(Paired_Blast_Data, aes(x = Bat_Speed, y = Angle, colour = xwOBAcon)) + geom_point(size = 0.85, position = "jitter") + ggtitle("xwOBAcon Based On BS & AA") + labs(y = "Attack Angle (deg)", x = "Bat Speed (mph)") + theme_dark() + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + theme(legend.position='none') + scale_color_gradient2(midpoint = mid, low="blue", mid="white", high="red", space ="Lab") + xlim(55,78) + ylim(-40,50)
+
+#Plot xwOBAcon based on DIM 1 & DIM2
+mid <- 0.2549091 #The median xwOBAcon of the balls in play from all Cape data
+ggplot(Paired_Blast_Data, aes(x = PC1, y = PC2, colour = xwOBAcon)) + geom_point(size = 0.85, position = "jitter") + ggtitle("xwOBAcon Based On Dim 1 & Dim 2") + labs(y = "Contact Dimension (Dim 2)", x = "Power Dimension (Dim 1)") + theme_dark() + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(face = "bold", size = 14)) + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + theme(legend.position='none') + scale_color_gradient2(midpoint = mid, low="blue", mid="white", high="red", space ="Lab") + xlim(-2.8, 3.2)
+
+
+
+#Combine the Paired Data with a player's averages
+#Import Player Averages: 
+Combined_Blast <- read_excel("Combined Blast.xlsx")
+View(Combined_Blast) 
+Combined_Blast2  <- merge(Paired_Blast_Data, Combined_Blast, by.x = "Name", by.y = "Hitter") ##All balls hits
+View(Combined_Blast2)
+#Make each pitch have a z score for a metric
+Combined_Blast2 <- Combined_Blast2 %>% mutate(Z_AA = (Attack_Angle - AvgAA)/SD_AA, Z_BS = (Bat_Speed - AvgBS)/SD_BS, Z_VBA = (Vertical_Bat_Angle - AvgVBA)/SD_VBA, Z_OPE = (OPE - AvgOPE)/Combined_Blast2$`SD OPE`, Z_CI = (Connection_at_Impact - AvgCI)/Combined_Blast2$`SD CI`, Z_EC = (Early_Connection - AvgEC)/SDEC, Z_TTC = (Time_to_Contact - AvgTTC)/SD_TtC)
+View(Combined_Blast2)
+
+
+
+### PITCH TYPE BREAKDOWNS ###
+
+#If following along then a CSV of Combined Blast can be imported
+Combined_Blast2 <- read.csv("Combined_Blast.csv")
+View(Combined_Blast2)
+#Group by pitch type and see some stats
+Pitch_Summary <- Combined_Blast2 %>% group_by(TaggedPitchType) %>% dplyr::summarise(N = n(), MeanBS = mean(Bat_Speed), MedBS = median(Bat_Speed), Mean_BS = mean(Z_BS), Med_BS = median(Z_BS), MeanAA = mean(Attack_Angle), MedAA = median(Attack_Angle), Mean_AA = mean(Z_AA), Med_AA = median(Z_AA), MeanVBA = mean(Vertical_Bat_Angle), MedVBA = median(Vertical_Bat_Angle), Mean_VBA = mean(Z_VBA), Med_VBA = median(Z_VBA), MeanCI = mean(Connection_at_Impact), MedCI = median(Connection_at_Impact), Mean_CI = mean(Z_CI), Med_CI = median(Z_CI), MeanEC = mean(Early_Connection), MedEC = median(Early_Connection), Mean_EC = mean(Z_EC), Med_EC = median(Z_EC), MeanOPE = mean(OPE), MedOPE = median(OPE), Mean_OPE = mean(Z_OPE), Med_OPE = median(Z_OPE), MeanTTC = mean(Time_to_Contact), MedTTC = median(Time_to_Contact), Mean_TTC = mean(Z_TTC), Med_TTC = median(Z_TTC))
+View(Pitch_Summary)
+
+
+
+### STRIKE ZONE BREAKDOWNS ###
+
+#Create Zone Groupings
+Combined_Blast2 <- Combined_Blast2 %>% mutate(Zone = case_when(
+PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "L" ~ "Up & Away",
+PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "L" ~ "Middle Away",
+PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "L" ~ "Down & Away",
+PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "L" ~ "Up & Middle",
+PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "L" ~ "Middle Middle",
+PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "L" ~ "Down & Middle",
+PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "L" ~ "Up & In",
+PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "L" ~ "Middle In",
+PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "L" ~ "Down & In",
+PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "R" ~ "Up & In",
+PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "R" ~ "Middle In",
+PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "R" ~ "Down & In",
+PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "R" ~ "Up & Middle",
+PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "R" ~ "Middle Middle",
+PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "R" ~ "Down & Middle",
+PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "R" ~ "Up & Away",
+PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "R" ~ "Middle Away",
+PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "R" ~ "Down & Away"
+))
+
+#Filter for pitches in a strike zone location
+Zone_Groups <- Combined_Blast2 %>% filter(!is.na(Zone))
+View(Zone_Groups)
+
+#Summarize Zones
+Zone_Summary <- Zone_Groups %>% group_by(Zone) %>% dplyr::summarise(N = n(), MeanBS = round(mean(Bat_Speed), 1), MedBS = round(median(Bat_Speed), 1), Mean_BS = mean(Z_BS), Med_BS = median(Z_BS), MeanAA = mean(Attack_Angle), MedAA = median(Attack_Angle), Mean_AA = mean(Z_AA), Med_AA = median(Z_AA), MeanVBA = mean(Vertical_Bat_Angle), MedVBA = median(Vertical_Bat_Angle), Mean_VBA = mean(Z_VBA), Med_VBA = median(Z_VBA), MeanCI = mean(Connection_at_Impact), MedCI = median(Connection_at_Impact), Mean_CI = mean(Z_CI), Med_CI = median(Z_CI), MeanEC = mean(Early_Connection), MedEC = median(Early_Connection), Mean_EC = mean(Z_EC), Med_EC = median(Z_EC), MeanOPE = mean(OPE), MedOPE = median(OPE), Mean_OPE = mean(Z_OPE), Med_OPE = median(Z_OPE), MeanTTC = mean(Time_to_Contact), MedTTC = median(Time_to_Contact), Mean_TTC = mean(Z_TTC), Med_TTC = median(Z_TTC))
+View(Zone_Summary)
+
+##Creating zones for the hitters to graph
+Zones <- Paired_Blast_Data %>%
+  mutate(X = 
+           case_when(
+             PlateLocSide < -0.27 & PlateLocSide >= -0.8125 ~ -0.545,
+             PlateLocSide < 0.27 & PlateLocSide >= -0.27 ~ 0,
+             PlateLocSide >= 0.27 & PlateLocSide <= 0.8125 ~ 0.545
+           )) %>%  mutate(Y = 
+                            case_when(
+                              PlateLocHeight <= 3.5 & PlateLocHeight > 2.886 ~ 3.193,
+                              PlateLocHeight <= 2.886 & PlateLocHeight > 2.272 ~ 2.579,
+                              PlateLocHeight <= 2.273 & PlateLocHeight >= 1.66 ~ 1.9665
+                            )) %>% mutate(Zone = 
+                                            case_when(
+                                              PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "L" ~ "Up & Away",
+                                              PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "L" ~ "Middle Away",
+                                              PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "L" ~ "Down & Away",
+                                              PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "L" ~ "Up & Middle",
+                                              PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "L" ~ "Middle Middle",
+                                              PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "L" ~ "Down & Middle",
+                                              PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "L" ~ "Up & In",
+                                              PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "L" ~ "Middle In",
+                                              PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "L" ~ "Down & In",
+                                              PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "R" ~ "Up & In",
+                                              PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "R" ~ "Middle In",
+                                              PlateLocSide > -0.8125 & PlateLocSide <= -0.27 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "R" ~ "Down & In",
+                                              PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "R" ~ "Up & Middle",
+                                              PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "R" ~ "Middle Middle",
+                                              PlateLocSide > -0.27 & PlateLocSide <= 0.27 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "R" ~ "Down & Middle",
+                                              PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight <= 3.5 & PlateLocHeight >= 2.886 & Handedness == "R" ~ "Up & Away",
+                                              PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight < 2.886 & PlateLocHeight >= 2.273 & Handedness == "R" ~ "Middle Away",
+                                              PlateLocSide > 0.27 & PlateLocSide <= 0.8125 & PlateLocHeight < 2.273 & PlateLocHeight >= 1.66 & Handedness == "R" ~ "Down & Away"
+                                            ))
+##Creating a data frame that contains just the zone locations
+Zones2 <- Zones %>% dplyr::select(Zone, X, Y)
+Zones2 <- (unique(Zones2))
+Zones2<- Zones2 %>% mutate(Zone = factor(Zone)) %>% filter(!is.na(Zone))
+k <- Zone_Summary %>% mutate(Zone = factor(Zone))
+Zone_Graphs <- merge(ev2, k, by = "Zone", all.x = TRUE)
+#If following along then can import the zone summary here and ignore work above.
+Zone_Graphs <- read.csv("Zone_Graphs.csv")
+View(Zone_Graphs)
+
+#Graph the pictures, labels can be changed if desired
+ggplot(Zone_Graphs, aes(X, Y, fill = round(MeanBS, 1))) + geom_raster() + geom_text(aes(label = round(MeanBS, 1)), size = 6) + ggtitle("Average Bat Speed Based On Location") + labs(y = "Plate Height (ft)", x = "Plate Side (ft)") + theme_minimal() + theme(plot.title = element_text(hjust = 0.5)) + theme(plot.title = element_text(hjust = 0.5)) + xlim(-1.5,1.5) + ylim(1 , 4) + geom_segment(aes(x = -0.8125, y = 3.5, xend = 0.8125, yend = 3.5), colour = "black") + geom_segment(aes(x = -0.8125, y = 1.66, xend = 0.8125, yend = 1.66), colour = "black") + geom_segment(aes(x = -0.8125, y = 1.66, xend = -0.8125, yend = 3.5), colour = "black") + geom_segment(aes(x = 0.8125, y = 1.66, xend = 0.8125, yend = 3.5), colour = "black") + theme(axis.title.x = element_text(face = "bold")) + theme(axis.title.y = element_text(face = "bold")) + theme(legend.title = element_text(face = "bold")) + scale_fill_gradientn(colours = c("blue", "white", "red")) + theme(legend.position='none') + theme(plot.title = element_text(face = "bold", size = 14))
+
+
+
+```
